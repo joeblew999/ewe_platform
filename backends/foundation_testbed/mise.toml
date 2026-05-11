@@ -67,7 +67,6 @@ set -e
 TARGET="x86_64-unknown-linux-musl"
 ROOT="$(git rev-parse --show-toplevel)"
 
-# Ensure the rustup target is installed
 if ! rustup target list --installed | grep -q "^${TARGET}$"; then
     echo "Adding rustup target $TARGET..."
     rustup target add "$TARGET"
@@ -136,6 +135,10 @@ cargo test --test e2e_tauri test_smb_mount_only -- --ignored --nocapture
 #  vm:*       Phase 2 — VMs on the remote host (via ssh + testbed binary)
 #  hil:*      Phase 3 — orchestrators that compose host:* + vm:*
 #
+# All task bodies live in scripts/hetzner/*.nu (nushell — cross-platform,
+# no WSL on Windows). Auto-detect helper in scripts/hetzner/env.nu picks
+# up existing hcloud context + matching SSH key by content match.
+#
 # Env overrides (all have sensible defaults):
 #   HETZNER_CONTEXT        hcloud context name           (default: testbed)
 #   HETZNER_SSH_KEY        local private key path        (default: ~/.ssh/id_ed25519)
@@ -150,43 +153,11 @@ cargo test --test e2e_tauri test_smb_mount_only -- --ignored --nocapture
 
 [tasks."hcloud:context"]
 description = "Save Hetzner API token in hcloud's local config (idempotent, interactive)"
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-CTX="$HETZNER_CONTEXT"
-if hcloud context list 2>/dev/null | awk '{print $2}' | grep -qx "$CTX"; then
-    echo "✓ hcloud context '$CTX' already exists"
-else
-    echo "Creating hcloud context '$CTX' — paste your API token when prompted:"
-    hcloud context create "$CTX"
-fi
-hcloud context use "$CTX"
-echo "Active: $(hcloud context active)"
-"""
+file = "scripts/hetzner/context.nu"
 
 [tasks."hcloud:ssh-key"]
 description = "Upload local SSH public key to Hetzner Cloud (idempotent)"
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-KEY_FILE="$HETZNER_SSH_KEY"
-KEY_NAME="$HETZNER_SSH_KEY_NAME"
-PUB="${KEY_FILE}.pub"
-if [ ! -f "$PUB" ]; then
-    echo "ERROR: $PUB not found."
-    echo "       Generate one with: ssh-keygen -t ed25519 -f $KEY_FILE"
-    echo "       Or point at an existing key: export HETZNER_SSH_KEY=/path/to/private_key"
-    exit 1
-fi
-if hcloud ssh-key describe "$KEY_NAME" >/dev/null 2>&1; then
-    echo "✓ SSH key '$KEY_NAME' already registered with Hetzner"
-else
-    hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file "$PUB"
-    echo "✓ Uploaded $PUB as Hetzner key '$KEY_NAME'"
-fi
-"""
+file = "scripts/hetzner/ssh-key.nu"
 
 [tasks."hcloud:check"]
 description = "Verify hcloud is authenticated against the active project"
@@ -195,256 +166,68 @@ file = "scripts/hetzner/check.nu"
 [tasks."hcloud:teardown"]
 description = "Delete ALL servers + SSH keys + local context (full reset)"
 confirm = "This deletes every server and SSH key in the active Hetzner project. Continue?"
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-CTX="$HETZNER_CONTEXT"
-
-echo "Deleting all servers..."
-hcloud server list -o columns=name -o noheader 2>/dev/null | while read -r name; do
-    [ -n "$name" ] && hcloud server delete "$name" && echo "  deleted: $name"
-done
-
-echo "Deleting all SSH keys..."
-hcloud ssh-key list -o columns=name -o noheader 2>/dev/null | while read -r name; do
-    [ -n "$name" ] && hcloud ssh-key delete "$name" && echo "  deleted: $name"
-done
-
-echo "Removing local context '$CTX'..."
-hcloud context delete "$CTX" 2>/dev/null || true
-
-cat <<EOF
-
-✓ Hetzner resources + local context cleared.
-
-To fully delete the Hetzner project itself (the empty shell + revoke
-the API token), do it in the web console:
-  https://console.hetzner.cloud → project → Settings → bottom of page
-EOF
-"""
+file = "scripts/hetzner/teardown.nu"
 
 # ─── host: Phase 1 — Hetzner box lifecycle ──────────────────────────────────
 
 [tasks."host:up"]
 description = "Create the persistent testbed host (idempotent; safe to re-run)"
 depends = ["hcloud:check", "hcloud:ssh-key"]
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-TYPE="${HETZNER_HOST_TYPE:-ccx23}"
-IMAGE="${HETZNER_HOST_IMAGE:-ubuntu-24.04}"
-LOCATION="${HETZNER_HOST_LOCATION:-fsn1}"
-KEY_NAME="$HETZNER_SSH_KEY_NAME"
-
-if hcloud server describe "$NAME" >/dev/null 2>&1; then
-    echo "✓ Host '$NAME' already exists at $(hcloud server ip "$NAME")"
-    exit 0
-fi
-
-echo "Creating $NAME ($TYPE, $IMAGE, $LOCATION)..."
-hcloud server create \
-    --name "$NAME" \
-    --type "$TYPE" \
-    --image "$IMAGE" \
-    --location "$LOCATION" \
-    --ssh-key "$KEY_NAME"
-
-IP=$(hcloud server ip "$NAME")
-echo "✓ $NAME created at $IP"
-"""
+file = "scripts/hetzner/host-up.nu"
 
 [tasks."host:bootstrap"]
 description = "Install QEMU + KVM userspace on the host (idempotent)"
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="$HETZNER_SSH_KEY"
-IP=$(hcloud server ip "$NAME") || { echo "ERROR: host '$NAME' not found. Run host:up first."; exit 1; }
-
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $KEY_FILE"
-ssh $SSH_OPTS "root@$IP" '
-    set -e
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -qq
-    apt-get install -y -qq qemu-system-x86 qemu-utils ovmf curl tar xz-utils
-    echo "✓ QEMU $(qemu-system-x86_64 --version | head -1)"
-    ls -l /dev/kvm 2>/dev/null && echo "✓ /dev/kvm available" || echo "⚠ /dev/kvm MISSING — QEMU will run in TCG (slow)"
-'
-"""
+file = "scripts/hetzner/host-bootstrap.nu"
 
 [tasks."host:deploy"]
 description = "Copy local testbed binary to the host's /usr/local/bin"
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="$HETZNER_SSH_KEY"
-BIN="$(git rev-parse --show-toplevel)/target/x86_64-unknown-linux-musl/release/testbed"
-if [ ! -f "$BIN" ]; then
-    echo "ERROR: $BIN not found."
-    echo "  Build it: mise run cross:build"
-    exit 1
-fi
-IP=$(hcloud server ip "$NAME")
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $KEY_FILE"
-scp $SSH_OPTS "$BIN" "root@$IP:/usr/local/bin/testbed"
-ssh $SSH_OPTS "root@$IP" "chmod +x /usr/local/bin/testbed && testbed --version 2>&1 | head -1"
-echo "✓ Deployed to $NAME"
-"""
+file = "scripts/hetzner/host-deploy.nu"
 
 [tasks."host:ssh"]
 description = "Open an interactive SSH session on the host"
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="$HETZNER_SSH_KEY"
-IP=$(hcloud server ip "$NAME")
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP"
-"""
+file = "scripts/hetzner/host-ssh.nu"
 
 [tasks."host:status"]
 description = "Show host state + all servers/keys in the project"
-run = """
-#!/usr/bin/env bash
-echo "=== Active context ===";   hcloud context active || true
-echo ""
-echo "=== Servers ===";          hcloud server list
-echo ""
-echo "=== SSH keys ===";         hcloud ssh-key list
-"""
+file = "scripts/hetzner/host-status.nu"
 
 [tasks."host:down"]
 description = "Delete the persistent testbed host (the ONLY way to remove it)"
 confirm = "Delete the testbed host? Any VMs and unsaved state on it will be lost."
-run = """
-#!/usr/bin/env bash
-set -e
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-hcloud server delete "$NAME" && echo "✓ $NAME deleted"
-"""
+file = "scripts/hetzner/host-down.nu"
 
 # ─── vm: Phase 2 — VMs on the remote host via testbed binary ────────────────
 
 [tasks."vm:doctor"]
 description = "Run `testbed doctor` on the remote host"
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="$HETZNER_SSH_KEY"
-IP=$(hcloud server ip "$NAME")
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed doctor"
-"""
+file = "scripts/hetzner/vm-doctor.nu"
 
 [tasks."vm:import"]
 description = "Import a VM profile on the host (e.g. linux-build, windows-build)"
-run = """
-#!/usr/bin/env bash
-set -e
-PROFILE="${1:?profile name required, e.g. linux-build}"
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="$HETZNER_SSH_KEY"
-IP=$(hcloud server ip "$NAME")
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed import $PROFILE"
-"""
+file = "scripts/hetzner/vm-import.nu"
 
 [tasks."vm:start"]
 description = "Start a VM profile on the host"
-run = """
-#!/usr/bin/env bash
-set -e
-PROFILE="${1:?profile name required}"
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="$HETZNER_SSH_KEY"
-IP=$(hcloud server ip "$NAME")
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed start $PROFILE --headless"
-"""
+file = "scripts/hetzner/vm-start.nu"
 
 [tasks."vm:stop"]
 description = "Stop a VM profile on the host"
-run = """
-#!/usr/bin/env bash
-set -e
-PROFILE="${1:?profile name required}"
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="$HETZNER_SSH_KEY"
-IP=$(hcloud server ip "$NAME")
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed stop $PROFILE"
-"""
+file = "scripts/hetzner/vm-stop.nu"
 
 # ─── hil: Phase 3 — orchestrators ───────────────────────────────────────────
 
 [tasks."hil:probe-kvm"]
 description = "Throwaway probe: spin a small CCX, check /dev/kvm, destroy (~€0.02, ~3 min)"
 depends = ["hcloud:check", "hcloud:ssh-key"]
-run = """
-#!/usr/bin/env bash
-set -e
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-NAME="kvm-probe-$(date +%s)"
-KEY_FILE="$HETZNER_SSH_KEY"
-KEY_NAME="$HETZNER_SSH_KEY_NAME"
-LOCATION="${HETZNER_HOST_LOCATION:-fsn1}"
-TYPE="${HETZNER_PROBE_TYPE:-ccx13}"
-IMAGE="${HETZNER_HOST_IMAGE:-ubuntu-24.04}"
-
-cleanup() { echo "Cleaning up $NAME..."; hcloud server delete "$NAME" >/dev/null 2>&1 || true; }
-trap cleanup EXIT
-
-echo "Creating $NAME ($TYPE, $IMAGE, $LOCATION)..."
-hcloud server create --name "$NAME" --type "$TYPE" --image "$IMAGE" --location "$LOCATION" --ssh-key "$KEY_NAME"
-IP=$(hcloud server ip "$NAME")
-echo "IP: $IP — waiting for SSH..."
-
-SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 -i $KEY_FILE"
-for i in {1..30}; do
-    if ssh $SSH_OPTS "root@$IP" "echo ready" >/dev/null 2>&1; then echo "✓ SSH up"; break; fi
-    sleep 5
-done
-
-echo ""
-echo "=== KVM probe results ==="
-ssh $SSH_OPTS "root@$IP" '
-    echo "/dev/kvm:";              ls -l /dev/kvm 2>&1 | sed "s/^/  /"
-    echo "CPU virt flags:";        grep -E -o "vmx|svm" /proc/cpuinfo | sort -u | sed "s/^/  /"
-    echo "Nested KVM enabled:";    cat /sys/module/kvm_intel/parameters/nested 2>/dev/null | sed "s/^/  intel: /"
-                                   cat /sys/module/kvm_amd/parameters/nested 2>/dev/null | sed "s/^/  amd: /"
-'
-"""
+file = "scripts/hetzner/hil-probe-kvm.nu"
 
 [tasks."hil:probe"]
 description = "First-time setup: save token, upload SSH key, run KVM probe (serial)"
-run = """
-#!/usr/bin/env bash
-set -e
-mise run hcloud:context
-mise run hcloud:ssh-key
-mise run hil:probe-kvm
-"""
+file = "scripts/hetzner/hil-probe.nu"
 
 [tasks."hil:up"]
 description = "Bring up a ready host: create + install QEMU + deploy testbed + doctor (serial)"
-run = """
-#!/usr/bin/env bash
-set -e
-mise run cross:build
-mise run host:up
-mise run host:bootstrap
-mise run host:deploy
-mise run vm:doctor
-"""
+file = "scripts/hetzner/hil-up.nu"
 
 [tasks."hil:down"]
 description = "Tear down the persistent host"
