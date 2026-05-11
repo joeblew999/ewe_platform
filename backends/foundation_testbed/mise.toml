@@ -232,3 +232,49 @@ file = "scripts/hetzner/hil-up.nu"
 [tasks."hil:down"]
 description = "Tear down the persistent host"
 depends = ["host:down"]
+
+# ============================================================================
+# Path 4: Hetzner Dedicated (AX41) via Robot API
+# ============================================================================
+# Different API + creds from Hetzner Cloud (Path 3). Scaffolded; verified
+# only at the `robot:check` level. Full lifecycle (rescue / install /
+# deploy / cancel) requires an actual AX41 in your account to test.
+#
+# Required env:
+#   HETZNER_ROBOT_USER       webservice user     (NOT account email)
+#   HETZNER_ROBOT_PASSWORD   webservice password (NOT account password)
+#   Create at: https://robot.hetzner.com → Settings → Web service settings
+#
+# Optional env:
+#   HETZNER_ROBOT_SERVER     IP or server number (default: first listed)
+#   HETZNER_ROBOT_HOSTNAME   hostname for installimage (default: testbed-ax41)
+#   HETZNER_SSH_KEY          local private key  (default: ~/.ssh/id_ed25519)
+
+[tasks."robot:check"]
+description = "Verify Robot API creds by listing servers"
+file = "scripts/hetzner/robot/check.nu"
+
+[tasks."robot:status"]
+description = "List AX41 servers, status, cancellation, paid-until"
+file = "scripts/hetzner/robot/status.nu"
+
+[tasks."robot:rescue"]
+description = "Activate Linux rescue mode + hardware reset (boots into rescue Linux in ~2 min)"
+file = "scripts/hetzner/robot/rescue.nu"
+
+[tasks."robot:install"]
+description = "Run installimage over rescue SSH (assumes rescue is active)"
+file = "scripts/hetzner/robot/install.nu"
+
+[tasks."robot:deploy"]
+description = "Copy local testbed binary to the AX41's /usr/local/bin"
+file = "scripts/hetzner/robot/deploy.nu"
+
+[tasks."robot:ssh"]
+description = "Open an interactive SSH session on the AX41"
+file = "scripts/hetzner/robot/ssh.nu"
+
+[tasks."robot:cancel"]
+description = "Schedule cancellation at end of current billing cycle (reversible until cycle ends)"
+confirm = "Schedule cancellation of the AX41 at end of current billing cycle?"
+file = "scripts/hetzner/robot/cancel.nu"
