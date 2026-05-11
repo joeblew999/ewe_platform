@@ -33,7 +33,7 @@ echo "✓ Testbed prerequisites satisfied"
 
 [tasks.doctor]
 description = "Run foundation_testbed health check"
-run = "cargo run --release --features cli -- doctor"
+run = "cargo run --release --features cli,all-providers -- doctor"
 
 [tasks.start]
 description = "Start a VM"
@@ -56,8 +56,8 @@ description = "Run unit tests"
 run = "cargo test"
 
 [tasks.build]
-description = "Build testbed binary (release, with cli feature) — native target"
-run = "cargo build --release --features cli"
+description = "Build testbed binary (release, cli + all VM providers) — native target"
+run = "cargo build --release --features cli,all-providers"
 
 [tasks."cross:build"]
 description = "Cross-compile testbed for x86_64-unknown-linux-musl (uses zig as linker via cargo-zigbuild)"
@@ -74,7 +74,7 @@ if ! rustup target list --installed | grep -q "^${TARGET}$"; then
 fi
 
 cd "$ROOT"
-cargo zigbuild --release --target "$TARGET" --features cli -p foundation_testbed --bin testbed
+cargo zigbuild --release --target "$TARGET" --features cli,all-providers -p foundation_testbed --bin testbed
 
 BIN="$ROOT/target/$TARGET/release/testbed"
 echo ""
