@@ -153,7 +153,8 @@ description = "Save Hetzner API token in hcloud's local config (idempotent, inte
 run = """
 #!/usr/bin/env bash
 set -e
-CTX="${HETZNER_CONTEXT:-testbed}"
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
+CTX="$HETZNER_CONTEXT"
 if hcloud context list 2>/dev/null | awk '{print $2}' | grep -qx "$CTX"; then
     echo "✓ hcloud context '$CTX' already exists"
 else
@@ -169,8 +170,9 @@ description = "Upload local SSH public key to Hetzner Cloud (idempotent)"
 run = """
 #!/usr/bin/env bash
 set -e
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
-KEY_NAME="${HETZNER_SSH_KEY_NAME:-$USER-laptop}"
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
+KEY_FILE="$HETZNER_SSH_KEY"
+KEY_NAME="$HETZNER_SSH_KEY_NAME"
 PUB="${KEY_FILE}.pub"
 if [ ! -f "$PUB" ]; then
     echo "ERROR: $PUB not found."
@@ -190,6 +192,7 @@ fi
 description = "Verify hcloud is authenticated against the active project"
 run = """
 #!/usr/bin/env bash
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 if ! hcloud server list >/dev/null 2>&1; then
     echo "✗ hcloud not authenticated for context '$(hcloud context active 2>/dev/null || echo none)'."
     echo "  Run: mise run hcloud:context"
@@ -204,7 +207,8 @@ confirm = "This deletes every server and SSH key in the active Hetzner project. 
 run = """
 #!/usr/bin/env bash
 set -e
-CTX="${HETZNER_CONTEXT:-testbed}"
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
+CTX="$HETZNER_CONTEXT"
 
 echo "Deleting all servers..."
 hcloud server list -o columns=name -o noheader 2>/dev/null | while read -r name; do
@@ -237,11 +241,12 @@ depends = ["hcloud:check", "hcloud:ssh-key"]
 run = """
 #!/usr/bin/env bash
 set -e
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
 TYPE="${HETZNER_HOST_TYPE:-ccx23}"
 IMAGE="${HETZNER_HOST_IMAGE:-ubuntu-24.04}"
 LOCATION="${HETZNER_HOST_LOCATION:-fsn1}"
-KEY_NAME="${HETZNER_SSH_KEY_NAME:-$USER-laptop}"
+KEY_NAME="$HETZNER_SSH_KEY_NAME"
 
 if hcloud server describe "$NAME" >/dev/null 2>&1; then
     echo "✓ Host '$NAME' already exists at $(hcloud server ip "$NAME")"
@@ -265,8 +270,9 @@ description = "Install QEMU + KVM userspace on the host (idempotent)"
 run = """
 #!/usr/bin/env bash
 set -e
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+KEY_FILE="$HETZNER_SSH_KEY"
 IP=$(hcloud server ip "$NAME") || { echo "ERROR: host '$NAME' not found. Run host:up first."; exit 1; }
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i $KEY_FILE"
@@ -285,24 +291,13 @@ description = "Copy local testbed binary to the host's /usr/local/bin"
 run = """
 #!/usr/bin/env bash
 set -e
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+KEY_FILE="$HETZNER_SSH_KEY"
 BIN="$(git rev-parse --show-toplevel)/target/x86_64-unknown-linux-musl/release/testbed"
 if [ ! -f "$BIN" ]; then
-    echo "ERROR: $BIN not found. Build the Linux musl binary first:"
-    echo ""
-    if [[ "$(uname)" == "Darwin" ]]; then
-        echo "  macOS prereqs:  brew install FiloSottile/musl-cross/musl-cross"
-        echo "                  rustup target add x86_64-unknown-linux-musl"
-        echo "                  add to .cargo/config.toml:"
-        echo "                    [target.x86_64-unknown-linux-musl]"
-        echo "                    linker = \\"x86_64-linux-musl-gcc\\""
-    else
-        echo "  Linux prereqs:  sudo apt install -y musl-tools  (or distro equivalent)"
-        echo "                  rustup target add x86_64-unknown-linux-musl"
-    fi
-    echo ""
-    echo "  Then:  cargo build --release --features cli --target x86_64-unknown-linux-musl -p foundation_testbed --bin testbed"
+    echo "ERROR: $BIN not found."
+    echo "  Build it: mise run cross:build"
     exit 1
 fi
 IP=$(hcloud server ip "$NAME")
@@ -317,8 +312,9 @@ description = "Open an interactive SSH session on the host"
 run = """
 #!/usr/bin/env bash
 set -e
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+KEY_FILE="$HETZNER_SSH_KEY"
 IP=$(hcloud server ip "$NAME")
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP"
 """
@@ -351,8 +347,9 @@ description = "Run `testbed doctor` on the remote host"
 run = """
 #!/usr/bin/env bash
 set -e
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+KEY_FILE="$HETZNER_SSH_KEY"
 IP=$(hcloud server ip "$NAME")
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed doctor"
 """
@@ -363,8 +360,9 @@ run = """
 #!/usr/bin/env bash
 set -e
 PROFILE="${1:?profile name required, e.g. linux-build}"
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+KEY_FILE="$HETZNER_SSH_KEY"
 IP=$(hcloud server ip "$NAME")
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed import $PROFILE"
 """
@@ -375,8 +373,9 @@ run = """
 #!/usr/bin/env bash
 set -e
 PROFILE="${1:?profile name required}"
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+KEY_FILE="$HETZNER_SSH_KEY"
 IP=$(hcloud server ip "$NAME")
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed start $PROFILE --headless"
 """
@@ -387,8 +386,9 @@ run = """
 #!/usr/bin/env bash
 set -e
 PROFILE="${1:?profile name required}"
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="${HETZNER_HOST_NAME:-testbed-host}"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+KEY_FILE="$HETZNER_SSH_KEY"
 IP=$(hcloud server ip "$NAME")
 ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$KEY_FILE" "root@$IP" "testbed stop $PROFILE"
 """
@@ -401,9 +401,10 @@ depends = ["hcloud:check", "hcloud:ssh-key"]
 run = """
 #!/usr/bin/env bash
 set -e
+. "$PROJECT_ROOT/scripts/hetzner/env.sh"
 NAME="kvm-probe-$(date +%s)"
-KEY_FILE="${HETZNER_SSH_KEY:-$HOME/.ssh/id_ed25519}"
-KEY_NAME="${HETZNER_SSH_KEY_NAME:-$USER-laptop}"
+KEY_FILE="$HETZNER_SSH_KEY"
+KEY_NAME="$HETZNER_SSH_KEY_NAME"
 LOCATION="${HETZNER_HOST_LOCATION:-fsn1}"
 TYPE="${HETZNER_PROBE_TYPE:-ccx13}"
 IMAGE="${HETZNER_HOST_IMAGE:-ubuntu-24.04}"
