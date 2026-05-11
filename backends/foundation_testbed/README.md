@@ -35,6 +35,20 @@ differs internally. Path 3 adds `cross:build`, `host:*`, `vm:*`, `hil:*`.
 Path 4 adds `robot:*` (Robot API is a peer of, not a subset of, Hetzner
 Cloud — different creds, different lifecycle, 24h minimum billing cycle).
 
+## Script directories — what's where
+
+Two top-level directories under `backends/foundation_testbed/`, with
+**completely different lifecycles**. Do not put files in the wrong one.
+
+| Directory | Audience | Lifecycle | Examples |
+|---|---|---|---|
+| `scripts/{linux,macos,windows}/` | **Guest VMs** | **Embedded into the testbed binary** at compile time via Rust `include_str!`. Shipped with the binary; extracted and executed *inside* the VM during bootstrap. | `install_mise.sh`, `setup_ssh_keys.sh`, `check_virtio.ps1` |
+| `ops/hetzner/` (and `ops/hetzner/robot/`) | **Host (dev's machine)** | **Driven by mise** at runtime on the developer's machine. NOT embedded in the binary. Drive remote provisioning / deploy via `hcloud` and Robot APIs. | `host-up.nu`, `vm-doctor.nu`, `hil-probe-kvm.nu` |
+
+If you add a new script:
+- New thing that runs **inside a VM** → put it in `scripts/<os>/` and `include_str!` it from `src/bootstrap/<os>.rs`.
+- New thing that runs **on the developer's machine** to drive Hetzner / future cloud providers → put it in `ops/<provider>/` and reference it from `mise.toml` via `file = "ops/.../foo.nu"`.
+
 ## Quick start
 
 ```bash

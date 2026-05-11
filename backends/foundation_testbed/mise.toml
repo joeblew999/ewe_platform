@@ -135,9 +135,15 @@ cargo test --test e2e_tauri test_smb_mount_only -- --ignored --nocapture
 #  vm:*       Phase 2 — VMs on the remote host (via ssh + testbed binary)
 #  hil:*      Phase 3 — orchestrators that compose host:* + vm:*
 #
-# All task bodies live in scripts/hetzner/*.nu (nushell — cross-platform,
-# no WSL on Windows). Auto-detect helper in scripts/hetzner/env.nu picks
+# All task bodies live in ops/hetzner/*.nu (nushell — cross-platform,
+# no WSL on Windows). Auto-detect helper in ops/hetzner/env.nu picks
 # up existing hcloud context + matching SSH key by content match.
+#
+# Why `ops/` (not `scripts/`): the sibling `scripts/{linux,macos,windows}/`
+# directories are GUEST-side scripts embedded into the testbed binary
+# via `include_str!`. The Hetzner ops scripts are HOST-side — driven by
+# mise on the dev's machine. Different lifecycle, different audience,
+# different directory.
 #
 # Env overrides (all have sensible defaults):
 #   HETZNER_CONTEXT        hcloud context name           (default: testbed)
@@ -153,81 +159,81 @@ cargo test --test e2e_tauri test_smb_mount_only -- --ignored --nocapture
 
 [tasks."hcloud:context"]
 description = "Save Hetzner API token in hcloud's local config (idempotent, interactive)"
-file = "scripts/hetzner/context.nu"
+file = "ops/hetzner/context.nu"
 
 [tasks."hcloud:ssh-key"]
 description = "Upload local SSH public key to Hetzner Cloud (idempotent)"
-file = "scripts/hetzner/ssh-key.nu"
+file = "ops/hetzner/ssh-key.nu"
 
 [tasks."hcloud:check"]
 description = "Verify hcloud is authenticated against the active project"
-file = "scripts/hetzner/check.nu"
+file = "ops/hetzner/check.nu"
 
 [tasks."hcloud:teardown"]
 description = "Delete ALL servers + SSH keys + local context (full reset)"
 confirm = "This deletes every server and SSH key in the active Hetzner project. Continue?"
-file = "scripts/hetzner/teardown.nu"
+file = "ops/hetzner/teardown.nu"
 
 # ─── host: Phase 1 — Hetzner box lifecycle ──────────────────────────────────
 
 [tasks."host:up"]
 description = "Create the persistent testbed host (idempotent; safe to re-run)"
 depends = ["hcloud:check", "hcloud:ssh-key"]
-file = "scripts/hetzner/host-up.nu"
+file = "ops/hetzner/host-up.nu"
 
 [tasks."host:bootstrap"]
 description = "Install QEMU + KVM userspace on the host (idempotent)"
-file = "scripts/hetzner/host-bootstrap.nu"
+file = "ops/hetzner/host-bootstrap.nu"
 
 [tasks."host:deploy"]
 description = "Copy local testbed binary to the host's /usr/local/bin"
-file = "scripts/hetzner/host-deploy.nu"
+file = "ops/hetzner/host-deploy.nu"
 
 [tasks."host:ssh"]
 description = "Open an interactive SSH session on the host"
-file = "scripts/hetzner/host-ssh.nu"
+file = "ops/hetzner/host-ssh.nu"
 
 [tasks."host:status"]
 description = "Show host state + all servers/keys in the project"
-file = "scripts/hetzner/host-status.nu"
+file = "ops/hetzner/host-status.nu"
 
 [tasks."host:down"]
 description = "Delete the persistent testbed host (the ONLY way to remove it)"
 confirm = "Delete the testbed host? Any VMs and unsaved state on it will be lost."
-file = "scripts/hetzner/host-down.nu"
+file = "ops/hetzner/host-down.nu"
 
 # ─── vm: Phase 2 — VMs on the remote host via testbed binary ────────────────
 
 [tasks."vm:doctor"]
 description = "Run `testbed doctor` on the remote host"
-file = "scripts/hetzner/vm-doctor.nu"
+file = "ops/hetzner/vm-doctor.nu"
 
 [tasks."vm:import"]
 description = "Import a VM profile on the host (e.g. linux-build, windows-build)"
-file = "scripts/hetzner/vm-import.nu"
+file = "ops/hetzner/vm-import.nu"
 
 [tasks."vm:start"]
 description = "Start a VM profile on the host"
-file = "scripts/hetzner/vm-start.nu"
+file = "ops/hetzner/vm-start.nu"
 
 [tasks."vm:stop"]
 description = "Stop a VM profile on the host"
-file = "scripts/hetzner/vm-stop.nu"
+file = "ops/hetzner/vm-stop.nu"
 
 # ─── hil: Phase 3 — orchestrators ───────────────────────────────────────────
 
 [tasks."hil:probe-kvm"]
 description = "Throwaway probe: spin a small CCX, check /dev/kvm, destroy (~€0.02, ~3 min)"
 depends = ["hcloud:check", "hcloud:ssh-key"]
-file = "scripts/hetzner/hil-probe-kvm.nu"
+file = "ops/hetzner/hil-probe-kvm.nu"
 
 [tasks."hil:probe"]
 description = "First-time setup: save token, upload SSH key, run KVM probe (serial)"
-file = "scripts/hetzner/hil-probe.nu"
+file = "ops/hetzner/hil-probe.nu"
 
 [tasks."hil:up"]
 description = "Bring up a ready host: create + install QEMU + deploy testbed + doctor (serial)"
-file = "scripts/hetzner/hil-up.nu"
+file = "ops/hetzner/hil-up.nu"
 
 [tasks."hil:down"]
 description = "Tear down the persistent host"
@@ -252,29 +258,29 @@ depends = ["host:down"]
 
 [tasks."robot:check"]
 description = "Verify Robot API creds by listing servers"
-file = "scripts/hetzner/robot/check.nu"
+file = "ops/hetzner/robot/check.nu"
 
 [tasks."robot:status"]
 description = "List AX41 servers, status, cancellation, paid-until"
-file = "scripts/hetzner/robot/status.nu"
+file = "ops/hetzner/robot/status.nu"
 
 [tasks."robot:rescue"]
 description = "Activate Linux rescue mode + hardware reset (boots into rescue Linux in ~2 min)"
-file = "scripts/hetzner/robot/rescue.nu"
+file = "ops/hetzner/robot/rescue.nu"
 
 [tasks."robot:install"]
 description = "Run installimage over rescue SSH (assumes rescue is active)"
-file = "scripts/hetzner/robot/install.nu"
+file = "ops/hetzner/robot/install.nu"
 
 [tasks."robot:deploy"]
 description = "Copy local testbed binary to the AX41's /usr/local/bin"
-file = "scripts/hetzner/robot/deploy.nu"
+file = "ops/hetzner/robot/deploy.nu"
 
 [tasks."robot:ssh"]
 description = "Open an interactive SSH session on the AX41"
-file = "scripts/hetzner/robot/ssh.nu"
+file = "ops/hetzner/robot/ssh.nu"
 
 [tasks."robot:cancel"]
 description = "Schedule cancellation at end of current billing cycle (reversible until cycle ends)"
 confirm = "Schedule cancellation of the AX41 at end of current billing cycle?"
-file = "scripts/hetzner/robot/cancel.nu"
+file = "ops/hetzner/robot/cancel.nu"
