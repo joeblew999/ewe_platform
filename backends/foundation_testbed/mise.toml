@@ -36,19 +36,19 @@ description = "Run foundation_testbed health check"
 run = "cargo run --release --features cli,all-providers -- doctor"
 
 [tasks.start]
-description = "Start a VM"
+description = "Start a VM locally (uses UTM on macOS, QEMU/KVM on Linux)"
 run = """
 #!/usr/bin/env bash
 PROFILE="${1:-linux-build}"
-cargo run --release -- start "$PROFILE"
+cargo run --release --features cli,all-providers -- start "$PROFILE"
 """
 
 [tasks.stop]
-description = "Stop a VM"
+description = "Stop a VM locally"
 run = """
 #!/usr/bin/env bash
 PROFILE="${1:-linux-build}"
-cargo run --release -- stop "$PROFILE"
+cargo run --release --features cli,all-providers -- stop "$PROFILE"
 """
 
 [tasks.test]
