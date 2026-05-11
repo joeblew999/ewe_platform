@@ -190,16 +190,7 @@ fi
 
 [tasks."hcloud:check"]
 description = "Verify hcloud is authenticated against the active project"
-run = """
-#!/usr/bin/env bash
-. "$PROJECT_ROOT/scripts/hetzner/env.sh"
-if ! hcloud server list >/dev/null 2>&1; then
-    echo "✗ hcloud not authenticated for context '$(hcloud context active 2>/dev/null || echo none)'."
-    echo "  Run: mise run hcloud:context"
-    exit 1
-fi
-echo "✓ Authenticated as context '$(hcloud context active)'"
-"""
+file = "scripts/hetzner/check.nu"
 
 [tasks."hcloud:teardown"]
 description = "Delete ALL servers + SSH keys + local context (full reset)"
