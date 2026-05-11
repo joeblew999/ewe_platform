@@ -17,6 +17,25 @@ so **no root privileges are required** at runtime.
 - **Health checks** — `doctor` command checks host KVM, QEMU binaries, SSH keys,
   disk space, port availability, and per-VM state
 
+## Deployment options
+
+The same `mise.toml` drives **four** deployment paths. Pick by where the
+VMs should run.
+
+| # | Path | Status | API / control plane | Doc |
+|---|---|---|---|---|
+| 1 | **Local on macOS + UTM** | ✓ implemented | native cargo, no API; UTM.app + Hypervisor.framework | [UTM.md](UTM.md) |
+| 2 | **Local on Linux + QEMU/KVM** | ✓ implemented (same task surface as 1) | native cargo; `/dev/kvm` if present, else TCG | this README |
+| 3 | **Remote Hetzner Cloud** (CCX) | ✓ implemented | `hcloud` CLI (`HCLOUD_TOKEN`); cross-compiled musl binary deployed via SSH | [HETZNER.md](HETZNER.md) |
+| 4 | **Remote Hetzner Dedicated** (AX41 via Robot) | flagged, **not implemented** | Hetzner Robot API (webservice user+pass); rescue → `installimage` → SSH | TBD |
+
+Paths 1 and 2 share the **exact same task surface** (`check`, `build`,
+`doctor`, `start`, `stop`) — only the `check` task's `uname` branch
+differs internally. Path 3 adds `cross:build`, `host:*`, `vm:*`, `hil:*`.
+Path 4 would add a separate `robot:*` namespace (Robot API is a peer of,
+not a subset of, Hetzner Cloud — different creds, different lifecycle,
+24h minimum billing cycle).
+
 ## Quick start
 
 ```bash

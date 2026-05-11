@@ -1,10 +1,9 @@
 # foundation_testbed on Hetzner
 
-> **Not your only option.** The testbed's primary workflow is **local on a
-> Mac via UTM** (`mise run check / doctor / start / stop`) — no
-> cross-compile, no SSH, just Hypervisor.framework. This doc covers
-> *remote* deploy to Hetzner for when you need Linux KVM, CI-like runs,
-> or workloads bigger than your laptop.
+> **Path 3 of 4.** This doc covers deploying to **Hetzner Cloud** (CCX).
+> See [README.md](README.md#deployment-options) for the full deployment
+> matrix; for local-on-Mac use [UTM.md](UTM.md). Hetzner Dedicated (AX41
+> via Robot API, Path 4) is flagged at the bottom but not implemented.
 
 Drive the testbed remotely on a Hetzner Cloud box. QEMU uses `/dev/kvm`
 if present and falls back to TCG (10–50× slower per the README) if not —
