@@ -1,5 +1,11 @@
 # foundation_testbed on Hetzner
 
+> **Not your only option.** The testbed's primary workflow is **local on a
+> Mac via UTM** (`mise run check / doctor / start / stop`) — no
+> cross-compile, no SSH, just Hypervisor.framework. This doc covers
+> *remote* deploy to Hetzner for when you need Linux KVM, CI-like runs,
+> or workloads bigger than your laptop.
+
 Drive the testbed remotely on a Hetzner Cloud box. QEMU uses `/dev/kvm`
 if present and falls back to TCG (10–50× slower per the README) if not —
 **so KVM is a performance upgrade, not a hard requirement**. Start cheap,
